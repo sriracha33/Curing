@@ -25,7 +25,6 @@ void setup()
 void loop()
 {
   delay(dht.getMinimumSamplingPeriod());
-  yield();
   
   float humidity = dht.getHumidity();
   float temperature = dht.getTemperature();
