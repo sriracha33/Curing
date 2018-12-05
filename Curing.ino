@@ -30,21 +30,31 @@ int updateDelay;
 uint8_t buttons,lastbuttons,changedbuttons;
 uint8_t menu=0;
 uint8_t humiditySP,temperatureSP;
+boolean tempOn,humidityOn;
+boolean tempControl,humidityControl;
+boolean saved=false;
 
 //ESP8266
 #define BUTTON_A  0
 #define BUTTON_B 16
 #define BUTTON_C  2
 
-void setup()
-{
+#define TEMP_PIN 12
+#define HUMIDITY_PIN 13
+#define DHT_PIN 14
+
+void setup(){
   Serial.begin(115200);
   
-  delay(50);  //needed so display will start up on power loss without a reset
+  delay(500);  //needed so display will start up on power loss without a reset
 
   EEPROM.begin(4);
   temperatureSP=EEPROM.read(0);
   humiditySP=EEPROM.read(1);
+  tempControl=true;
+  humidityControl=true;
+  tempOn=false;
+  humidityOn=false;
   
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
   display.display();
@@ -55,6 +65,8 @@ void setup()
   pinMode(BUTTON_A, INPUT_PULLUP);
   pinMode(BUTTON_B, INPUT_PULLUP);
   pinMode(BUTTON_C, INPUT_PULLUP);
+  pinMode(TEMP_PIN, OUTPUT);
+  pinMode(HUMIDITY_PIN, OUTPUT);
 
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   WiFi.setAutoReconnect(true);
@@ -63,22 +75,19 @@ void setup()
   display.setCursor(0,0);
   display.print("Connecting");
   display.display();
-  while ((WiFi.status() != WL_CONNECTED) && millis()<5000)
+  while ((WiFi.status() != WL_CONNECTED) && millis()<8000)
   {
     delay(500);
     display.print(".");
     display.display();
   }
 
-  dht.setup(12, DHTesp::DHT22);
+  dht.setup(DHT_PIN, DHTesp::DHT22);
   updateDelay=dht.getMinimumSamplingPeriod();
 
   buttons=0;
   lastbuttons=0;
   changedbuttons=0;
-
-  //temperatureSP=60;
-  //humiditySP=65;
   
   lastUpdateTime=millis()-updateDelay;
 }
@@ -86,6 +95,7 @@ void setup()
 void loop(){
   //check for current time to see if we need an update
   int currentTime=millis();
+
   
   //check for buttons presses and process
   buttons=0x00|(!digitalRead(BUTTON_A))|(!digitalRead(BUTTON_B)<<1)|(!digitalRead(BUTTON_C)<<2);
@@ -126,11 +136,6 @@ void loop(){
     UpdateDisplay();
   }
   lastbuttons=buttons;
-
-  //Control Code
-  if (saveCountdown==0){
-    //do stuff
-  }
   
   //update readings and screen
   if ((currentTime-lastUpdateTime)>=updateDelay) {
@@ -142,10 +147,31 @@ void loop(){
       EEPROM.write(1,humiditySP);
       EEPROM.commit();
       Serial.println("save");
+      saved=true;
     }
-    saveCountdown--;
+    else{
+      saved=false;
+    }
+    if (saveCountdown>0) saveCountdown--;
+    
+    //Control Code
+    if (saveCountdown==0){
+      if (tempOn && temperature-temperatureSP>=TEMP_DEADBAND){
+        tempOn=false;
+      }
+      if (!tempOn && temperatureSP-temperature>=TEMP_DEADBAND){
+        tempOn=true;
+      }
+      if (humidityOn&& humidity-humiditySP>=HUMIDITY_DEADBAND){
+        humidityOn=false;
+      }
+      if (!humidityOn && humiditySP-humidity>=HUMIDITY_DEADBAND){
+        humidityOn=true;
+      }
+    }
+    
     UpdateDisplay();
-    if (WiFi.status() != WL_CONNECTED) WiFi.reconnect();
+    //if (WiFi.status() != WL_CONNECTED) WiFi.reconnect();
   }
   
   yield();
@@ -155,22 +181,38 @@ void UpdateDisplay(){
   display.clearDisplay();
   if (menu==0){
     display.setTextSize(1);
-    display.setCursor(10,9);
-    display.print("Temp.");
-    display.setCursor(10,17);
+    display.setCursor(0,9);
+    if (saved) display.print("*");
+    display.setCursor(40,9);
+    display.print("MV");
+    display.setCursor(72,9);
+    display.print("SP");
+    display.setCursor(95,9);
+    display.print("Ctrl");
+    display.setCursor(0,17);
+    display.print("Temp");
+    display.setCursor(30,17);
     display.print(temperature,1);
     display.print((char)247);
-    display.setCursor(16,25);
+    display.setCursor(69,17);
     display.print(temperatureSP);
     display.print((char)247);
-    display.setCursor(66,9);
-    display.print("Humidity");
-    display.setCursor(75,17);
+    display.setCursor(98,17);
+    display.print((tempControl ? "Off" : "On"));
+    display.setCursor(122,17);
+    display.print(int(tempOn));
+    display.setCursor(0,25);
+    display.print("Hum.");
+    display.setCursor(30,25);
     display.print(humidity,1);
     display.print("%");
-    display.setCursor(81,25);
+    display.setCursor(69,25);
     display.print(humiditySP);
     display.print("%");
+    display.setCursor(98,25);
+    display.print((humidityControl ? "On" : "Off"));
+    display.setCursor(122,25);
+    display.print(int(humidityOn));
     display.setCursor(0,0);
     display.setTextSize(1);
     display.print(WiFi.localIP());
