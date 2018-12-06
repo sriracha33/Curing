@@ -1,9 +1,10 @@
-#include <DHTesp.h>
 #include <Wire.h>
+#include <EEPROM.h>
+#include <DHTesp.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <ESP8266WiFi.h>
-#include <EEPROM.h>
+#include <ESP8266WebServer.h>
 
 #include "Wifi.h"
 /*Define WIFI SSID and Password if not using separate header file.
@@ -21,6 +22,10 @@
 
 DHTesp dht;
 Adafruit_SSD1306 display = Adafruit_SSD1306(128, 32, &Wire);
+
+ESP8266WebServer server(80);    // Create a webserver object that listens for HTTP request on port 80
+void handleXML();              // function prototypes for XML file.
+void handleNotFound();
 
 float humidity;
 float temperature;
@@ -91,6 +96,10 @@ void setup(){
   buttons=0;
   lastbuttons=0;
   changedbuttons=0;
+
+  server.on("/data.xml", HTTP_GET, handleXML);        // Call the 'handleRoot' function when a client requests URI "/"
+  server.onNotFound(handleNotFound);           // When a client requests an unknown URI (i.e. something other than "/"), call 
+  server.begin();
   
   lastUpdateTime=millis()-updateDelay;
 }
@@ -99,6 +108,7 @@ void loop(){
   //check for current time to see if we need an update
   int currentTime=millis();
 
+  server.handleClient();
   
   //check for buttons presses and process
   buttons=0x00|(!digitalRead(BUTTON_A))|(!digitalRead(BUTTON_B)<<1)|(!digitalRead(BUTTON_C)<<2);
@@ -300,7 +310,14 @@ void UpdateDisplay(){
 }
 
 
+/*******Web Functions******/
 
+void handleXML(){
+  String xml="<?xml version='1.0' encoding='UTF-8'?><data><datetime>Thursday December 06, 2018 07:20:09</datetime></data>";
+    server.send(200, "text/xml", xml);
+}
 
-
+void handleNotFound(){
+  server.send(404, "text/plain", "404: Not found");
+}
 
