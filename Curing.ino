@@ -49,10 +49,13 @@ void setup(){
   delay(500);  //needed so display will start up on power loss without a reset
 
   EEPROM.begin(4);
-  temperatureSP=EEPROM.read(0);
-  humiditySP=EEPROM.read(1);
-  tempControl=true;
-  humidityControl=true;
+  byte temp=EEPROM.read(0);
+  tempControl=temp&0x01;
+  humidityControl=temp&0x02;
+  temperatureSP=EEPROM.read(1);
+  humiditySP=EEPROM.read(2);
+  //tempControl=true;
+  //humidityControl=true;
   tempOn=false;
   humidityOn=false;
   
@@ -102,22 +105,38 @@ void loop(){
   changedbuttons=buttons^lastbuttons;
   if (changedbuttons){
     if (changedbuttons&buttons&0x01){
-      if (menu==1){
+      if (menu==0){
+        menu=5;
+      }
+      else if (menu==1){
         if (temperatureSP<TEMP_MAX){
           temperatureSP++;
           saveCountdown=6;
         }
       }
-      if (menu==2){
+      else if (menu==2){
+        tempControl=!tempControl;
+        saveCountdown=6;
+      }
+      else if (menu==3){
         if (humiditySP<HUMIDITY_MAX){
           humiditySP++;
           saveCountdown=6;
         }
       }
+      else if (menu==4){
+        humidityControl=!humidityControl;
+        saveCountdown=6;
+      }
+      else if (menu==5){
+        menu=0;
+      }
     }
     if (changedbuttons&buttons&(0x01<<1)){
-      menu++;
-      if (menu>3) menu=0;
+      if (menu<5){
+        menu++;
+        if (menu>4) menu=0;
+      }
     }
     if (changedbuttons&buttons&(0x01<<2)) {
       if (menu==1){
@@ -126,11 +145,19 @@ void loop(){
           saveCountdown=6;
         }
       }
-      if (menu==2){
+      else if (menu==2){
+        tempControl=!tempControl;
+        saveCountdown=6;
+      }
+      else if (menu==3){
         if (humiditySP>HUMIDITY_MIN){
           humiditySP--;
           saveCountdown=6;
         }
+      }
+      else if (menu==4){
+        humidityControl=!humidityControl;
+        saveCountdown=6;
       }
     }
     UpdateDisplay();
@@ -143,10 +170,10 @@ void loop(){
     humidity = dht.getHumidity();
     temperature = dht.toFahrenheit(dht.getTemperature());
     if (saveCountdown==1){
-      EEPROM.write(0,temperatureSP);
-      EEPROM.write(1,humiditySP);
+      EEPROM.write(0,0x00|tempControl|(humidityControl<<1));
+      EEPROM.write(1,temperatureSP);
+      EEPROM.write(2,humiditySP);
       EEPROM.commit();
-      Serial.println("save");
       saved=true;
     }
     else{
@@ -156,23 +183,32 @@ void loop(){
     
     //Control Code
     if (saveCountdown==0){
-      if (tempOn && temperature-temperatureSP>=TEMP_DEADBAND){
+      if (tempControl){
+        if (tempOn && temperature-temperatureSP>=TEMP_DEADBAND){
+          tempOn=false;
+        }
+        if (!tempOn && temperatureSP-temperature>=TEMP_DEADBAND){
+          tempOn=true;
+        }
+      }
+      else {
         tempOn=false;
       }
-      if (!tempOn && temperatureSP-temperature>=TEMP_DEADBAND){
-        tempOn=true;
+
+      if (humidityControl){
+        if (humidityOn&& humidity-humiditySP>=HUMIDITY_DEADBAND){
+          humidityOn=false;
+        }
+        if (!humidityOn && humiditySP-humidity>=HUMIDITY_DEADBAND){
+          humidityOn=true;
+        }
       }
-      if (humidityOn&& humidity-humiditySP>=HUMIDITY_DEADBAND){
+      else{
         humidityOn=false;
       }
-      if (!humidityOn && humiditySP-humidity>=HUMIDITY_DEADBAND){
-        humidityOn=true;
-      }
     }
-    if (tempControl) digitalWrite(TEMP_PIN,tempOn);
-    else digitalWrite(TEMP_PIN,false);
-    if (humidityControl) digitalWrite(HUMIDITY_PIN,humidityOn);
-    else digitalWrite(HUMIDITY_PIN,false);
+    digitalWrite(TEMP_PIN,tempOn);
+    digitalWrite(HUMIDITY_PIN,humidityOn);
     
     UpdateDisplay();
     //if (WiFi.status() != WL_CONNECTED) WiFi.reconnect();
@@ -183,7 +219,7 @@ void loop(){
 
 void UpdateDisplay(){
   display.clearDisplay();
-  if (menu==0){
+  if (menu!=5){
     display.setTextSize(1);
     display.setCursor(0,9);
     if (saved) display.print("*");
@@ -202,7 +238,7 @@ void UpdateDisplay(){
     display.print(temperatureSP);
     display.print((char)247);
     display.setCursor(98,17);
-    display.print((tempControl ? "Off" : "On"));
+    display.print((tempControl ? "On" : "Off"));
     display.setCursor(122,17);
     display.print(int(tempOn));
     display.setCursor(0,25);
@@ -225,33 +261,40 @@ void UpdateDisplay(){
     display.print(WiFi.RSSI());
     display.print("dBm");
   }
-  else if (menu==1){
-    display.setTextSize(1);
-    display.setCursor(10,9);
-    display.print("Temp.");
-    display.setCursor(10,17);
-    display.print(temperature,1);
-    display.print((char)247);
-    display.setCursor(16,25);
-    display.print(temperatureSP);
-    display.print((char)247);
+  if (menu==1){
+    uint8_t x=69;
+    uint8_t y=17;
+    display.fillTriangle(x-2,y+4,x-4,y+2,x-4,y+6,WHITE);
   }
-  else if (menu==2){
-    display.setCursor(66,9);
-    display.print("Humidity");
-    display.setCursor(75,17);
-    display.print(humidity,1);
-    display.print("%");
-    display.setCursor(81,25);
-    display.print(humiditySP);
-    display.print("%");
+  if (menu==2){
+    uint8_t x=98;
+    uint8_t y=17;
+    display.fillTriangle(x-2,y+4,x-4,y+2,x-4,y+6,WHITE);
   }
-  else if (menu==3){
+  if (menu==3){
+    uint8_t x=69;
+    uint8_t y=25;
+    display.fillTriangle(x-2,y+4,x-4,y+2,x-4,y+6,WHITE);
+  }
+  if (menu==4){
+    uint8_t x=98;
+    uint8_t y=25;
+    display.fillTriangle(x-2,y+4,x-4,y+2,x-4,y+6,WHITE);
+  }
+  if (menu==5){
     display.setCursor(0,0);
-    display.print(WiFi.localIP());
-    display.setCursor(90,0);
+    //display.print(": ");
+    display.print(WiFi.SSID());
+    display.setCursor(0,9);
+    display.print("Signal: ");
     display.print(WiFi.RSSI());
     display.print("dBm");
+    display.setCursor(0,17);
+    display.print("IP: ");
+    display.print(WiFi.localIP());
+    display.setCursor(0,25);
+    display.print("MAC:");
+    display.print(WiFi.macAddress());
   }
   display.display();
 }
