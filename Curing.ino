@@ -169,6 +169,10 @@ void loop(){
         humidityOn=true;
       }
     }
+    if (tempControl) digitalWrite(TEMP_PIN,tempOn);
+    else digitalWrite(TEMP_PIN,false);
+    if (humidityControl) digitalWrite(HUMIDITY_PIN,humidityOn);
+    else digitalWrite(HUMIDITY_PIN,false);
     
     UpdateDisplay();
     //if (WiFi.status() != WL_CONNECTED) WiFi.reconnect();
