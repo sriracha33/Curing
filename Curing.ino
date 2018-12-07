@@ -313,8 +313,19 @@ void UpdateDisplay(){
 /*******Web Functions******/
 
 void handleXML(){
-  String xml="<?xml version='1.0' encoding='UTF-8'?><data><datetime>Thursday December 06, 2018 07:20:09</datetime></data>";
-    server.send(200, "text/xml", xml);
+  String xml;
+  xml="<?xml version='1.0' encoding='UTF-8'?>";
+  xml+="<data>";
+  xml+="<temperature>"+String(temperature)+"</temperature>";
+  xml+="<temperatureSP>"+String(temperatureSP)+"</temperatureSP>";
+  xml+="<tempControl>"+String(tempControl)+"</tempControl>";
+  xml+="<tempOn>"+String(tempOn)+"</tempOn>";
+  xml+="<humidity>"+String(humidity)+"</humidity>";
+  xml+="<humiditySP>"+String(humiditySP)+"</humiditySP>";
+  xml+="<humidityControl>"+String(humidityControl)+"</humidityControl>";
+  xml+="<humidityOn>"+String(humidityOn)+"</humidityOn>";
+  xml+="</data>";
+  server.send(200, "text/xml", xml);
 }
 
 void handleNotFound(){
