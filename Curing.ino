@@ -31,6 +31,7 @@ float humidity;
 float temperature;
 int lastUpdateTime;
 uint8_t saveCountdown=0;
+uint8_t menuCountdown=0;
 int updateDelay;
 uint8_t buttons,lastbuttons,changedbuttons;
 uint8_t menu=0;
@@ -173,6 +174,12 @@ void loop(){
     UpdateDisplay();
   }
   lastbuttons=buttons;
+
+  //set countdown when not on menu 0.  After a period of time, go back to menu 0;
+  if (menu==0) {menuCountdown=0;}
+  else if (buttons) {menuCountdown=16;}
+  //else if (menuCountdown==0 && !buttons) menuCountdown=11;
+  
   
   //update readings and screen
   if ((currentTime-lastUpdateTime)>=updateDelay) {
@@ -189,7 +196,11 @@ void loop(){
     else{
       saved=false;
     }
+    
     if (saveCountdown>0) saveCountdown--;
+
+    if (menuCountdown>0) {menuCountdown--;}
+    if (menuCountdown==0) {menu=0;}
     
     //Control Code
     if (saveCountdown==0){
@@ -219,6 +230,8 @@ void loop(){
     }
     digitalWrite(TEMP_PIN,tempOn);
     digitalWrite(HUMIDITY_PIN,humidityOn);
+    
+
     
     UpdateDisplay();
     //if (WiFi.status() != WL_CONNECTED) WiFi.reconnect();
