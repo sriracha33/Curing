@@ -1,10 +1,11 @@
 #include <Wire.h>
 #include <EEPROM.h>
-#include <DHTesp.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include <Adafruit_SHT31.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
+
 
 #include "Wifi.h"
 /*Define WIFI SSID and Password if not using separate header file.
@@ -14,13 +15,13 @@
 
 //configuration defines
 #define TEMP_DEADBAND 1
-#define HUMIDITY_DEADBAND 1
+#define HUMIDITY_DEADBAND 3
 #define TEMP_MAX 90
 #define TEMP_MIN 40
 #define HUMIDITY_MAX 90
 #define HUMIDITY_MIN 20
 
-DHTesp dht;
+Adafruit_SHT31 sht31 = Adafruit_SHT31();
 Adafruit_SSD1306 display = Adafruit_SSD1306(128, 32, &Wire);
 
 ESP8266WebServer server(80);    // Create a webserver object that listens for HTTP request on port 80
@@ -91,8 +92,8 @@ void setup(){
     display.display();
   }
 
-  dht.setup(DHT_PIN, DHTesp::DHT22);
-  updateDelay=dht.getMinimumSamplingPeriod();
+  sht31.begin(0x44);
+  updateDelay=2000;
 
   buttons=0;
   lastbuttons=0;
@@ -184,8 +185,8 @@ void loop(){
   //update readings and screen
   if ((currentTime-lastUpdateTime)>=updateDelay) {
     lastUpdateTime+=updateDelay;
-    humidity = dht.getHumidity();
-    temperature = dht.toFahrenheit(dht.getTemperature());
+    temperature=sht31.readTemperature()*1.8+32;
+    humidity=sht31.readHumidity();
     if (saveCountdown==1){
       EEPROM.write(0,0x00|tempControl|(humidityControl<<1));
       EEPROM.write(1,temperatureSP);
