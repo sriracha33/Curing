@@ -24,7 +24,8 @@ DHTesp dht;
 Adafruit_SSD1306 display = Adafruit_SSD1306(128, 32, &Wire);
 
 ESP8266WebServer server(80);    // Create a webserver object that listens for HTTP request on port 80
-void handleXML();              // function prototypes for XML file.
+void handleXML();             // function prototypes for XML file.
+void handleCommand();         // function prototypes for handling commands.
 void handleNotFound();
 
 float humidity;
@@ -339,6 +340,27 @@ void handleXML(){
   xml+="<humidityOn>"+String(humidityOn)+"</humidityOn>";
   xml+="</data>";
   server.send(200, "text/xml", xml);
+}
+
+void handleCommand(){
+  //make sure command 
+  if( !server.hasArg("command") || !server.hasArg("value") || server.arg("command") == NULL || server.arg("value") == NULL || server.arg("command").toInt() == 0){
+    server.send(400, "text/plain", "400: Invalid Request");         // The request is invalid, so send HTTP status 400
+    return;
+  }
+  
+  int command=server.arg("command").toInt();
+  
+  if (command==1){tempControl==(boolean)server.arg("value").toInt();}
+  else if (command==2){temperatureSP==constrain(server.arg("value").toFloat(),TEMP_MIN,TEMP_MAX);}
+  else if (command==3){humidityControl==(boolean)server.arg("value").toInt();}
+  else if (command==4){humiditySP==constrain(server.arg("value").toFloat(),HUMIDITY_MIN,HUMIDITY_MAX);}
+  else {
+    server.send(400, "text/plain", "400: Invalid Command");  
+    return;
+  }
+  
+  server.send(200, "text/plain", "Success");
 }
 
 void handleNotFound(){
