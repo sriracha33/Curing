@@ -14,7 +14,7 @@
 */
 
 //configuration defines
-#define TEMP_DEADBAND 1
+#define TEMP_DEADBAND 2
 #define HUMIDITY_DEADBAND 3
 #define TEMP_MAX 90
 #define TEMP_MIN 40
@@ -49,36 +49,36 @@ boolean saved=false;
 
 #define TEMP_PIN 12
 #define HUMIDITY_PIN 13
-#define DHT_PIN 14
 
 void setup(){
   Serial.begin(115200);
   
   delay(500);  //needed so display will start up on power loss without a reset
 
+  //read saved config data from eeprom
   EEPROM.begin(4);
   byte temp=EEPROM.read(0);
   tempControl=temp&0x01;
   humidityControl=temp&0x02;
   temperatureSP=EEPROM.read(1);
   humiditySP=EEPROM.read(2);
-  //tempControl=true;
-  //humidityControl=true;
   tempOn=false;
   humidityOn=false;
-  
+
+  //startup display
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
   display.display();
   display.setTextSize(1);
   display.setTextColor(WHITE);
-  delay(1000);
 
+  //setup pins for buttons and control pins for humidity and temp relays
   pinMode(BUTTON_A, INPUT_PULLUP);
   pinMode(BUTTON_B, INPUT_PULLUP);
   pinMode(BUTTON_C, INPUT_PULLUP);
   pinMode(TEMP_PIN, OUTPUT);
   pinMode(HUMIDITY_PIN, OUTPUT);
 
+  //start wifi
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   WiFi.setAutoReconnect(true);
   
@@ -86,6 +86,8 @@ void setup(){
   display.setCursor(0,0);
   display.print("Connecting");
   display.display();
+  
+  //wait a while for wifi to connect.  needed?
   while ((WiFi.status() != WL_CONNECTED) && millis()<8000)
   {
     delay(500);
@@ -93,15 +95,20 @@ void setup(){
     display.display();
   }
 
+  //set up temperature sensor. 0x44 or 0x45
   sht31.begin(0x44);
+  
   updateDelay=2000;
 
+  //initialize buttons press states
   buttons=0;
   lastbuttons=0;
   changedbuttons=0;
 
-  server.on("/data.xml", HTTP_GET, handleXML);        // Call the 'handleRoot' function when a client requests URI "/"
-  server.onNotFound(handleNotFound);           // When a client requests an unknown URI (i.e. something other than "/"), call 
+  //set up web server
+  server.on("/data.xml", HTTP_GET, handleXML);      // Call the 'handleXML' function when a client requests URI "/data.xml"
+  server.on("/command.cgi", HTTP_POST, handleCommand);  // Call the 'handleRoot' function when a client requests URI "/command with post parameters"
+  server.onNotFound(handleNotFound);                // When a client requests an unknown URI (i.e. something other than above), call 
   server.begin();
   
   lastUpdateTime=millis()-updateDelay;
@@ -114,9 +121,16 @@ void loop(){
   server.handleClient();
   
   //check for buttons presses and process
+  
+  //get state of buttons
   buttons=0x00|(!digitalRead(BUTTON_A))|(!digitalRead(BUTTON_B)<<1)|(!digitalRead(BUTTON_C)<<2);
+  //check if bottons have changed since last check
   changedbuttons=buttons^lastbuttons;
+  
+  //if they have changed, process each newly pressed button.
   if (changedbuttons){
+    
+    //Button A. Usually the up button.  Also toggles network screen from main menu.
     if (changedbuttons&buttons&0x01){
       if (menu==0){
         menu=5;
@@ -145,12 +159,16 @@ void loop(){
         menu=0;
       }
     }
+
+    //Button B.  Menu change button.
     if (changedbuttons&buttons&(0x01<<1)){
       if (menu<5){
         menu++;
         if (menu>4) menu=0;
       }
     }
+
+    //Button C. Usually the down button.
     if (changedbuttons&buttons&(0x01<<2)) {
       if (menu==1){
         if (temperatureSP>TEMP_MIN){
@@ -180,14 +198,14 @@ void loop(){
   //set countdown when not on menu 0.  After a period of time, go back to menu 0;
   if (menu==0) {menuCountdown=0;}
   else if (buttons) {menuCountdown=16;}
-  //else if (menuCountdown==0 && !buttons) menuCountdown=11;
   
-  
-  //update readings and screen
+  //update readings and screen.  Done after every updateDelay in ms.
   if ((currentTime-lastUpdateTime)>=updateDelay) {
     lastUpdateTime+=updateDelay;
     temperature=sht31.readTemperature()*1.8+32;
     humidity=sht31.readHumidity();
+
+    //save current values is saveCountdown is expiring
     if (saveCountdown==1){
       EEPROM.write(0,0x00|tempControl|(humidityControl<<1));
       EEPROM.write(1,temperatureSP);
@@ -198,14 +216,19 @@ void loop(){
     else{
       saved=false;
     }
-    
+
+    //deincrement save countdown
     if (saveCountdown>0) saveCountdown--;
 
+    //deincrement menu countdown.  When it expires, go to main menu.
     if (menuCountdown>0) {menuCountdown--;}
     if (menuCountdown==0) {menu=0;}
     
-    //Control Code
+    /*Control Code*/
+
+    //only process if no recent changes made.
     if (saveCountdown==0){
+      //process temperature control
       if (tempControl){
         if (tempOn && temperature-temperatureSP>=TEMP_DEADBAND){
           tempOn=false;
@@ -218,6 +241,7 @@ void loop(){
         tempOn=false;
       }
 
+      //process humidity control
       if (humidityControl){
         if (humidityOn&& humidity-humiditySP>=HUMIDITY_DEADBAND){
           humidityOn=false;
@@ -232,9 +256,7 @@ void loop(){
     }
     digitalWrite(TEMP_PIN,tempOn);
     digitalWrite(HUMIDITY_PIN,humidityOn);
-    
-
-    
+   
     UpdateDisplay();
     //if (WiFi.status() != WL_CONNECTED) WiFi.reconnect();
   }
@@ -243,7 +265,11 @@ void loop(){
 }
 
 void UpdateDisplay(){
+  //update display with current values based on current menu.
+  
   display.clearDisplay();
+  
+  //base display.  Shows summary of control values
   if (menu!=5){
     display.setTextSize(1);
     display.setCursor(0,9);
@@ -286,26 +312,36 @@ void UpdateDisplay(){
     display.print(WiFi.RSSI());
     display.print("dBm");
   }
+
+  //edit temperature setpoint
   if (menu==1){
     uint8_t x=69;
     uint8_t y=17;
     display.fillTriangle(x-2,y+4,x-4,y+2,x-4,y+6,WHITE);
   }
+
+  //toggle temperature control
   if (menu==2){
     uint8_t x=98;
     uint8_t y=17;
     display.fillTriangle(x-2,y+4,x-4,y+2,x-4,y+6,WHITE);
   }
+
+  //humidity setpoint
   if (menu==3){
     uint8_t x=69;
     uint8_t y=25;
     display.fillTriangle(x-2,y+4,x-4,y+2,x-4,y+6,WHITE);
   }
+
+  //toggle humidity control
   if (menu==4){
     uint8_t x=98;
     uint8_t y=25;
     display.fillTriangle(x-2,y+4,x-4,y+2,x-4,y+6,WHITE);
   }
+
+  //network page.
   if (menu==5){
     display.setCursor(0,0);
     //display.print(": ");
@@ -321,6 +357,7 @@ void UpdateDisplay(){
     display.print("MAC:");
     display.print(WiFi.macAddress());
   }
+  
   display.display();
 }
 
@@ -328,6 +365,7 @@ void UpdateDisplay(){
 /*******Web Functions******/
 
 void handleXML(){
+  //build xml with all required data and send it in response.
   String xml;
   xml="<?xml version='1.0' encoding='UTF-8'?>";
   xml+="<data>";
@@ -344,27 +382,31 @@ void handleXML(){
 }
 
 void handleCommand(){
-  //make sure command 
+  //make sure command and value are proper
   if( !server.hasArg("command") || !server.hasArg("value") || server.arg("command") == NULL || server.arg("value") == NULL || server.arg("command").toInt() == 0){
     server.send(400, "text/plain", "400: Invalid Request");         // The request is invalid, so send HTTP status 400
     return;
   }
-  
+
+  //get integer value of command
   int command=server.arg("command").toInt();
-  
-  if (command==1){tempControl==(boolean)server.arg("value").toInt();}
-  else if (command==2){temperatureSP==constrain(server.arg("value").toFloat(),TEMP_MIN,TEMP_MAX);}
-  else if (command==3){humidityControl==(boolean)server.arg("value").toInt();}
-  else if (command==4){humiditySP==constrain(server.arg("value").toFloat(),HUMIDITY_MIN,HUMIDITY_MAX);}
+
+  //process command.  If it is zero or undefined command, return error.
+  if (command==1){tempControl=(boolean)server.arg("value").toInt();saveCountdown=6;}
+  else if (command==2){temperatureSP=constrain(server.arg("value").toFloat(),TEMP_MIN,TEMP_MAX);saveCountdown=6;}
+  else if (command==3){humidityControl=(boolean)server.arg("value").toInt();saveCountdown=6;}
+  else if (command==4){humiditySP=constrain(server.arg("value").toFloat(),HUMIDITY_MIN,HUMIDITY_MAX);saveCountdown=6;}
   else {
     server.send(400, "text/plain", "400: Invalid Command");  
     return;
   }
-  
+
+  //send success response
   server.send(200, "text/plain", "Success");
 }
 
 void handleNotFound(){
+  //any unknown page requested, return not found.
   server.send(404, "text/plain", "404: Not found");
 }
 
