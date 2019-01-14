@@ -20,6 +20,9 @@
 #define TEMP_MIN 40
 #define HUMIDITY_MAX 90
 #define HUMIDITY_MIN 20
+#define UPDATE_DELAY 2000
+#define CHANGE_TIMEOUT 5000
+#define MENU_TIMEOUT 10000
 
 Adafruit_SHT31 sht31 = Adafruit_SHT31();
 Adafruit_SSD1306 display = Adafruit_SSD1306(128, 32, &Wire);
@@ -31,16 +34,17 @@ void handleNotFound();
 
 float humidity;
 float temperature;
-int lastUpdateTime;
-uint8_t saveCountdown=0;
-uint8_t menuCountdown=0;
-int updateDelay;
+uint32_t currentTime,lastUpdateTime,lastMenuTime,lastChangeTime;
 uint8_t buttons,lastbuttons,changedbuttons;
 uint8_t menu=0;
 uint8_t humiditySP,temperatureSP;
 boolean tempOn,humidityOn;
 boolean tempControl,humidityControl;
 boolean saved=false;
+String xml;
+int32_t rssi;
+IPAddress ip;
+
 
 //ESP8266
 #define BUTTON_A  0
@@ -97,8 +101,6 @@ void setup(){
 
   //set up temperature sensor. 0x44 or 0x45
   sht31.begin(0x44);
-  
-  updateDelay=2000;
 
   //initialize buttons press states
   buttons=0;
@@ -111,12 +113,20 @@ void setup(){
   server.onNotFound(handleNotFound);                // When a client requests an unknown URI (i.e. something other than above), call 
   server.begin();
   
-  lastUpdateTime=millis()-updateDelay;
+  //reserve space for xml response.
+  xml.reserve(512);
+  
+  lastUpdateTime=millis()-UPDATE_DELAY;
 }
 
 void loop(){
   //check for current time to see if we need an update
-  int currentTime=millis();
+  currentTime=millis();
+
+  //don't let currentTime be zero.  it will be assigned to other times.  Zero will mean not set
+  if (currentTime==0){
+    currentTime++;
+  }
 
   server.handleClient();
   
@@ -138,22 +148,22 @@ void loop(){
       else if (menu==1){
         if (temperatureSP<TEMP_MAX){
           temperatureSP++;
-          saveCountdown=6;
+          lastChangeTime=currentTime;
         }
       }
       else if (menu==2){
         tempControl=!tempControl;
-        saveCountdown=6;
+        lastChangeTime=currentTime;
       }
       else if (menu==3){
         if (humiditySP<HUMIDITY_MAX){
           humiditySP++;
-          saveCountdown=6;
+          lastChangeTime=currentTime;
         }
       }
       else if (menu==4){
         humidityControl=!humidityControl;
-        saveCountdown=6;
+        lastChangeTime=currentTime;
       }
       else if (menu==5){
         menu=0;
@@ -173,40 +183,44 @@ void loop(){
       if (menu==1){
         if (temperatureSP>TEMP_MIN){
           temperatureSP--;
-          saveCountdown=6;
+          lastChangeTime=currentTime;;
         }
       }
       else if (menu==2){
         tempControl=!tempControl;
-        saveCountdown=6;
+        lastChangeTime=currentTime;;
       }
       else if (menu==3){
         if (humiditySP>HUMIDITY_MIN){
           humiditySP--;
-          saveCountdown=6;
+          lastChangeTime=currentTime;;
         }
       }
       else if (menu==4){
         humidityControl=!humidityControl;
-        saveCountdown=6;
+        lastChangeTime=currentTime;;
       }
     }
     UpdateDisplay();
   }
   lastbuttons=buttons;
 
-  //set countdown when not on menu 0.  After a period of time, go back to menu 0;
-  if (menu==0) {menuCountdown=0;}
-  else if (buttons) {menuCountdown=16;}
+  //start timing when not on menu 0.  After a period of MENU_TIMEOUT, go back to menu 0;
+  if (menu==0) {lastMenuTime=0;}
+  else if (buttons) {lastMenuTime=currentTime;}
   
-  //update readings and screen.  Done after every updateDelay in ms.
-  if ((currentTime-lastUpdateTime)>=updateDelay) {
-    lastUpdateTime+=updateDelay;
+  //update readings and screen.  Done after every UPDATE_DELAY in ms.
+  if ((currentTime-lastUpdateTime)>=UPDATE_DELAY) {
+    lastUpdateTime+=UPDATE_DELAY;
+    xml="";
     temperature=sht31.readTemperature()*1.8+32;
     humidity=sht31.readHumidity();
+    rssi=WiFi.RSSI();
+    ip=WiFi.localIP();
 
-    //save current values is saveCountdown is expiring
-    if (saveCountdown==1){
+    //save current values is CHANGE_TIMEOUT has passed
+    if ((currentTime-lastChangeTime)>=CHANGE_TIMEOUT && lastChangeTime!=0) {  
+      lastChangeTime=0;
       EEPROM.write(0,0x00|tempControl|(humidityControl<<1));
       EEPROM.write(1,temperatureSP);
       EEPROM.write(2,humiditySP);
@@ -217,17 +231,17 @@ void loop(){
       saved=false;
     }
 
-    //deincrement save countdown
-    if (saveCountdown>0) saveCountdown--;
-
-    //deincrement menu countdown.  When it expires, go to main menu.
-    if (menuCountdown>0) {menuCountdown--;}
-    if (menuCountdown==0) {menu=0;}
+    //when MENU_TIMEOUT has elapsed from last menu button, go to main menu.
+    if ((currentTime-lastMenuTime)>=MENU_TIMEOUT && lastMenuTime!=0) {
+      lastMenuTime=0;
+      menu=0;
+    }
     
     /*Control Code*/
 
     //only process if no recent changes made.
-    if (saveCountdown==0){
+    //if (saveCountdown==0){
+    if (lastChangeTime==0){
       //process temperature control
       if (tempControl){
         if (tempOn && temperature-temperatureSP>=TEMP_DEADBAND){
@@ -306,11 +320,12 @@ void UpdateDisplay(){
     display.print(int(humidityOn));
     display.setCursor(0,0);
     display.setTextSize(1);
-    display.print(WiFi.localIP());
+    display.print(ip);
     display.setCursor(90,0);
     display.setTextSize(1);
-    display.print(WiFi.RSSI());
+    display.print(rssi);
     display.print("dBm");
+    
   }
 
   //edit temperature setpoint
@@ -365,19 +380,23 @@ void UpdateDisplay(){
 /*******Web Functions******/
 
 void handleXML(){
-  //build xml with all required data and send it in response.
-  String xml;
-  xml="<?xml version='1.0' encoding='UTF-8'?>";
-  xml+="<data>";
-  xml+="<temperature>"+String(temperature)+"</temperature>";
-  xml+="<temperatureSP>"+String(temperatureSP)+"</temperatureSP>";
-  xml+="<tempControl>"+String(tempControl)+"</tempControl>";
-  xml+="<tempOn>"+String(tempOn)+"</tempOn>";
-  xml+="<humidity>"+String(humidity)+"</humidity>";
-  xml+="<humiditySP>"+String(humiditySP)+"</humiditySP>";
-  xml+="<humidityControl>"+String(humidityControl)+"</humidityControl>";
-  xml+="<humidityOn>"+String(humidityOn)+"</humidityOn>";
-  xml+="</data>";
+  if (xml.length()==0){
+    //build xml with all required data and send it in response.
+    xml="<?xml version='1.0' encoding='UTF-8'?>";
+    xml+="<data>";
+    xml+="<temperature>"+String(temperature)+"</temperature>";
+    xml+="<temperatureSP>"+String(temperatureSP)+"</temperatureSP>";
+    xml+="<tempControl>"+String(tempControl)+"</tempControl>";
+    xml+="<tempOn>"+String(tempOn)+"</tempOn>";
+    xml+="<humidity>"+String(humidity)+"</humidity>";
+    xml+="<humiditySP>"+String(humiditySP)+"</humiditySP>";
+    xml+="<humidityControl>"+String(humidityControl)+"</humidityControl>";
+    xml+="<humidityOn>"+String(humidityOn)+"</humidityOn>";
+    xml+="</data>";
+  }
+  else{
+    //do nothing.  data hasn't changed
+  }
   server.send(200, "text/xml", xml);
 }
 
@@ -392,10 +411,10 @@ void handleCommand(){
   int command=server.arg("command").toInt();
 
   //process command.  If it is zero or undefined command, return error.
-  if (command==1){tempControl=(boolean)server.arg("value").toInt();saveCountdown=6;}
-  else if (command==2){temperatureSP=constrain(server.arg("value").toFloat(),TEMP_MIN,TEMP_MAX);saveCountdown=6;}
-  else if (command==3){humidityControl=(boolean)server.arg("value").toInt();saveCountdown=6;}
-  else if (command==4){humiditySP=constrain(server.arg("value").toFloat(),HUMIDITY_MIN,HUMIDITY_MAX);saveCountdown=6;}
+  if (command==1){tempControl=(boolean)server.arg("value").toInt();lastChangeTime=currentTime;}
+  else if (command==2){temperatureSP=constrain(server.arg("value").toFloat(),TEMP_MIN,TEMP_MAX);lastChangeTime=currentTime;}
+  else if (command==3){humidityControl=(boolean)server.arg("value").toInt();lastChangeTime=currentTime;}
+  else if (command==4){humiditySP=constrain(server.arg("value").toFloat(),HUMIDITY_MIN,HUMIDITY_MAX);lastChangeTime=currentTime;}
   else {
     server.send(400, "text/plain", "400: Invalid Command");  
     return;
