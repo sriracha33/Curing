@@ -7,9 +7,9 @@
 #include <ESP8266WiFiMulti.h>
 #include <ESP8266WebServer.h>
 
-
 #include "WifiSettings.h"
-/*Define WIFI SSID and Password if not using separate header file. Add up to 3.
+//define WIFI SSID and Password if not using separate header file. Add up to 3.
+/*
 #define WIFI_SSID "ssid"
 #define WIFI_PASSWORD "password"
 #define WIFI_SSID2 "ssid2"
@@ -246,7 +246,6 @@ void loop(){
     else{humidity=reading*HUMIDITY_SMOOTH+humidity*(1-HUMIDITY_SMOOTH);}
 
     //read and smooth rssi level
-    //rssi=WiFi.RSSI();
     if (wifiMulti.run() != WL_CONNECTED || rssi==0){rssi=WiFi.RSSI();}
     else {rssi=WiFi.RSSI()*RSSI_SMOOTH+rssi*(1-RSSI_SMOOTH);}
     
