@@ -4,13 +4,18 @@
 #include <Adafruit_SSD1306.h>
 #include <Adafruit_SHT31.h>
 #include <ESP8266WiFi.h>
+#include <ESP8266WiFiMulti.h>
 #include <ESP8266WebServer.h>
 
 
-#include "Wifi.h"
-/*Define WIFI SSID and Password if not using separate header file.
+#include "WifiSettings.h"
+/*Define WIFI SSID and Password if not using separate header file. Add up to 3.
 #define WIFI_SSID "ssid"
 #define WIFI_PASSWORD "password"
+#define WIFI_SSID2 "ssid2"
+#define WIFI_PASSWORD2 "password2"
+#define WIFI_SSID3 "ssid3"
+#define WIFI_PASSWORD3 "password3"
 */
 
 //configuration defines
@@ -20,10 +25,11 @@
 #define TEMP_MIN 40
 #define HUMIDITY_MAX 90
 #define HUMIDITY_MIN 20
-#define UPDATE_DELAY 2000
+#define UPDATE_DELAY 1000
 #define CHANGE_TIMEOUT 5000
-#define MENU_TIMEOUT 10000
+#define MENU_TIMEOUT 30000
 
+ESP8266WiFiMulti wifiMulti;
 Adafruit_SHT31 sht31 = Adafruit_SHT31();
 Adafruit_SSD1306 display = Adafruit_SSD1306(128, 32, &Wire);
 
@@ -83,16 +89,24 @@ void setup(){
   pinMode(HUMIDITY_PIN, OUTPUT);
 
   //start wifi
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  WiFi.setAutoReconnect(true);
-  
+  #if defined(WIFI_SSID) && defined(WIFI_PASSWORD)
+    wifiMulti.addAP(WIFI_SSID, WIFI_PASSWORD);
+  #endif
+  #if defined(WIFI_SSID2) && defined(WIFI_PASSWORD2)
+    wifiMulti.addAP(WIFI_SSID2, WIFI_PASSWORD2);
+  #endif
+  #if defined(WIFI_SSID3) && defined(WIFI_PASSWORD3)
+    wifiMulti.addAP(WIFI_SSID3, WIFI_PASSWORD3);
+  #endif
+
+   
   display.clearDisplay();
   display.setCursor(0,0);
   display.print("Connecting");
   display.display();
   
   //wait a while for wifi to connect.  needed?
-  while ((WiFi.status() != WL_CONNECTED) && millis()<8000)
+  while ((wifiMulti.run() != WL_CONNECTED) && millis()<8000)
   {
     delay(500);
     display.print(".");
@@ -128,6 +142,7 @@ void loop(){
     currentTime++;
   }
 
+  wifiMulti.run();
   server.handleClient();
   
   //check for buttons presses and process
