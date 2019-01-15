@@ -21,6 +21,9 @@
 //configuration defines
 #define TEMP_DEADBAND 2
 #define HUMIDITY_DEADBAND 3
+#define TEMP_SMOOTH .25
+#define HUMIDITY_SMOOTH .25
+#define RSSI_SMOOTH .1
 #define TEMP_MAX 90
 #define TEMP_MIN 40
 #define HUMIDITY_MAX 90
@@ -29,12 +32,21 @@
 #define CHANGE_TIMEOUT 5000
 #define MENU_TIMEOUT 30000
 
+//ESP8266. Define Pins
+#define BUTTON_A  0
+#define BUTTON_B 16
+#define BUTTON_C  2
+
+#define TEMP_PIN 12
+#define HUMIDITY_PIN 13
+
 ESP8266WiFiMulti wifiMulti;
 Adafruit_SHT31 sht31 = Adafruit_SHT31();
 Adafruit_SSD1306 display = Adafruit_SSD1306(128, 32, &Wire);
 
 ESP8266WebServer server(80);    // Create a webserver object that listens for HTTP request on port 80
 void handleXML();             // function prototypes for XML file.
+void handleHTML();             // function prototypes for HTML file.
 void handleCommand();         // function prototypes for handling commands.
 void handleNotFound();
 
@@ -47,18 +59,9 @@ uint8_t humiditySP,temperatureSP;
 boolean tempOn,humidityOn;
 boolean tempControl,humidityControl;
 boolean saved=false;
-String xml;
+String xml,html;
 int32_t rssi;
 IPAddress ip;
-
-
-//ESP8266
-#define BUTTON_A  0
-#define BUTTON_B 16
-#define BUTTON_C  2
-
-#define TEMP_PIN 12
-#define HUMIDITY_PIN 13
 
 void setup(){
   Serial.begin(115200);
@@ -122,12 +125,14 @@ void setup(){
   changedbuttons=0;
 
   //set up web server
-  server.on("/data.xml", HTTP_GET, handleXML);      // Call the 'handleXML' function when a client requests URI "/data.xml"
+  server.on("/data.xml", HTTP_GET, handleXML);          // Call the 'handleXML' function when a client requests URI "/data.xml"
+  server.on("/", HTTP_GET, handleHTML);                 // Call the 'handleHTML' function when a client requests URI "/"
   server.on("/command.cgi", HTTP_POST, handleCommand);  // Call the 'handleRoot' function when a client requests URI "/command with post parameters"
-  server.onNotFound(handleNotFound);                // When a client requests an unknown URI (i.e. something other than above), call 
+  server.onNotFound(handleNotFound);                    // When a client requests an unknown URI (i.e. something other than above), call 
   server.begin();
   
   //reserve space for xml response.
+  html.reserve(512);
   xml.reserve(512);
   
   lastUpdateTime=millis()-UPDATE_DELAY;
@@ -142,7 +147,6 @@ void loop(){
     currentTime++;
   }
 
-  wifiMulti.run();
   server.handleClient();
   
   //check for buttons presses and process
@@ -198,22 +202,22 @@ void loop(){
       if (menu==1){
         if (temperatureSP>TEMP_MIN){
           temperatureSP--;
-          lastChangeTime=currentTime;;
+          lastChangeTime=currentTime;
         }
       }
       else if (menu==2){
         tempControl=!tempControl;
-        lastChangeTime=currentTime;;
+        lastChangeTime=currentTime;
       }
       else if (menu==3){
         if (humiditySP>HUMIDITY_MIN){
           humiditySP--;
-          lastChangeTime=currentTime;;
+          lastChangeTime=currentTime;
         }
       }
       else if (menu==4){
         humidityControl=!humidityControl;
-        lastChangeTime=currentTime;;
+        lastChangeTime=currentTime;
       }
     }
     UpdateDisplay();
@@ -228,9 +232,24 @@ void loop(){
   if ((currentTime-lastUpdateTime)>=UPDATE_DELAY) {
     lastUpdateTime+=UPDATE_DELAY;
     xml="";
-    temperature=sht31.readTemperature()*1.8+32;
-    humidity=sht31.readHumidity();
-    rssi=WiFi.RSSI();
+    html="";
+    float reading;
+
+    //read and smooth temperature
+    reading=sht31.readTemperature()*1.8+32;
+    if (temperature==0){temperature=reading;}
+    else{temperature=reading*TEMP_SMOOTH+temperature*(1-TEMP_SMOOTH);}
+
+    //read and smooth humidity
+    reading=sht31.readHumidity();
+    if (humidity==0){humidity=reading;}
+    else{humidity=reading*HUMIDITY_SMOOTH+humidity*(1-HUMIDITY_SMOOTH);}
+
+    //read and smooth rssi level
+    //rssi=WiFi.RSSI();
+    if (wifiMulti.run() != WL_CONNECTED || rssi==0){rssi=WiFi.RSSI();}
+    else {rssi=WiFi.RSSI()*RSSI_SMOOTH+rssi*(1-RSSI_SMOOTH);}
+    
     ip=WiFi.localIP();
 
     //save current values is CHANGE_TIMEOUT has passed
@@ -409,10 +428,28 @@ void handleXML(){
     xml+="<humidityOn>"+String(humidityOn)+"</humidityOn>";
     xml+="</data>";
   }
-  else{
-    //do nothing.  data hasn't changed
-  }
   server.send(200, "text/xml", xml);
+}
+
+//basic web page to monitor status
+void handleHTML(){
+  if (html.length()==0){
+    html="<html><head><title>Curing Chamber</title><meta http-equiv='refresh' content='5'></head><body>";
+    html+="<H1>Curing Control</H1>";
+    html+="<table border='1', style='border-collapse: collapse;'>";
+    html+="<tr><th></th><th>MV</th><th>SP</th><th>Ctrl</th><th></th></tr>";
+    html+="<tr><td>Temp</td>";
+    html+="<td>" + String(temperature) + "&deg;</td>";
+    html+="<td>" + String(temperatureSP) + "&deg;</td>";
+    html+="<td>" + String(tempControl) + "</td>";
+    html+="<td>" + String(tempOn) + "</td></tr>";
+    html+="<tr><td>Humidity</td>";
+    html+="<td>" + String(humidity) + "%</td>";
+    html+="<td>" + String(humiditySP) + "%</td>";
+    html+="<td>" + String(humidityControl) + "</td>";
+    html+="<td>" + String(humidityOn) + "</td></tr></table></body>";
+  }
+  server.send(200, "text/html", html);
 }
 
 void handleCommand(){
