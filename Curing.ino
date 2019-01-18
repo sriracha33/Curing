@@ -45,10 +45,10 @@ Adafruit_SHT31 sht31 = Adafruit_SHT31();
 Adafruit_SSD1306 display = Adafruit_SSD1306(128, 32, &Wire);
 
 ESP8266WebServer server(80);    // Create a webserver object that listens for HTTP request on port 80
-void handleXML();             // function prototypes for XML file.
-void handleHTML();             // function prototypes for HTML file.
-void handleCommand();         // function prototypes for handling commands.
-void handleNotFound();
+void handleXML();               // function prototypes for XML file.
+void handleHTML();              // function prototypes for HTML file.
+void handleCommand();           // function prototypes for handling commands.
+void handleNotFound();          // function for anything else.
 
 float humidity;
 float temperature;
