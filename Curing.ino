@@ -30,7 +30,9 @@
 #define HUMIDITY_MIN 20
 #define UPDATE_DELAY 1000
 #define CHANGE_TIMEOUT 5000
-#define MENU_TIMEOUT 30000
+#define MENU_TIMEOUT 120000
+#define TEMP_ON_SMOOTH .2
+#define HUMIDITY_ON_SMOOTH .2
 
 //ESP8266. Define Pins
 #define BUTTON_A  0
@@ -53,6 +55,8 @@ void handleNotFound();          // function for anything else.
 float humidity;
 float temperature;
 uint32_t currentTime,lastUpdateTime,lastMenuTime,lastChangeTime;
+uint32_t tempOnTime,tempOffTime,humidityOnTime,humidityOffTime;
+uint8_t tempOnPercent,humidityOnPercent;
 uint8_t buttons,lastbuttons,changedbuttons;
 uint8_t menu=0;
 uint8_t humiditySP,temperatureSP;
@@ -123,6 +127,14 @@ void setup(){
   buttons=0;
   lastbuttons=0;
   changedbuttons=0;
+
+  //initialize onTime/offTime counters.
+  tempOnTime=0;
+  tempOffTime=0;
+  tempOnPercent=0;
+  humidityOnTime=0;
+  humidityOffTime=0;
+  humidityOnPercent=0;
 
   //set up web server
   server.on("/data.xml", HTTP_GET, handleXML);          // Call the 'handleXML' function when a client requests URI "/data.xml"
@@ -199,7 +211,10 @@ void loop(){
 
     //Button C. Usually the down button.
     if (changedbuttons&buttons&(0x01<<2)) {
-      if (menu==1){
+      if (menu==0){
+        menu=6;
+      }
+      else if (menu==1){
         if (temperatureSP>TEMP_MIN){
           temperatureSP--;
           lastChangeTime=currentTime;
@@ -219,6 +234,9 @@ void loop(){
         humidityControl=!humidityControl;
         lastChangeTime=currentTime;
       }
+      else if (menu==6){
+        menu=0;
+      }
     }
     UpdateDisplay();
   }
@@ -231,6 +249,13 @@ void loop(){
   //update readings and screen.  Done after every UPDATE_DELAY in ms.
   if ((currentTime-lastUpdateTime)>=UPDATE_DELAY) {
     lastUpdateTime+=UPDATE_DELAY;
+
+    //update ontime counters
+    if (tempOn){tempOnTime+=UPDATE_DELAY;}
+    else {tempOffTime+=UPDATE_DELAY;}
+    if (humidityOn){humidityOnTime+=UPDATE_DELAY;}
+    else {humidityOffTime+=UPDATE_DELAY;}
+    
     xml="";
     html="";
     float reading;
@@ -272,34 +297,62 @@ void loop(){
     
     /*Control Code*/
 
-    //only process if no recent changes made.
-    //if (saveCountdown==0){
-    if (lastChangeTime==0){
-      //process temperature control
-      if (tempControl){
-        if (tempOn && temperature-temperatureSP>=TEMP_DEADBAND){
-          tempOn=false;
-        }
-        if (!tempOn && temperatureSP-temperature>=TEMP_DEADBAND){
-          tempOn=true;
-        }
-      }
-      else {
+    //process temperature control
+    if (tempControl){
+      if (tempOn && temperature-temperatureSP>=TEMP_DEADBAND){
         tempOn=false;
+        if (tempOffTime>UPDATE_DELAY){
+          uint32_t newPercent;
+          newPercent=(tempOnTime*100)/(tempOnTime+tempOffTime);
+          if (tempOnPercent==0){tempOnPercent=newPercent;}
+          else {tempOnPercent=newPercent*TEMP_ON_SMOOTH+tempOnPercent*(1-TEMP_ON_SMOOTH);}
+          tempOffTime=0;
+        }
       }
+      if (!tempOn && temperatureSP-temperature>=TEMP_DEADBAND){
+        tempOn=true;
+        if (tempOffTime>UPDATE_DELAY){
+          uint32_t newPercent;
+          newPercent=(tempOnTime*100)/(tempOnTime+tempOffTime);
+          if (tempOnPercent==0){tempOnPercent=newPercent;}
+          else {tempOnPercent=newPercent*TEMP_ON_SMOOTH+tempOnPercent*(1-TEMP_ON_SMOOTH);}
+          tempOnTime=0;
+        }
+      }
+    }
+    else {
+      tempOn=false;
+      tempOnTime=0;
+      tempOffTime=0;
+    }
 
-      //process humidity control
-      if (humidityControl){
-        if (humidityOn&& humidity-humiditySP>=HUMIDITY_DEADBAND){
-          humidityOn=false;
-        }
-        if (!humidityOn && humiditySP-humidity>=HUMIDITY_DEADBAND){
-          humidityOn=true;
-        }
-      }
-      else{
+    //process humidity control
+    if (humidityControl){
+      if (humidityOn&& humidity-humiditySP>=HUMIDITY_DEADBAND){
         humidityOn=false;
+        if (humidityOffTime>UPDATE_DELAY){
+          uint32_t newPercent;
+          newPercent=(humidityOnTime*100)/(humidityOnTime+humidityOffTime);
+          if (humidityOnPercent==0){humidityOnPercent=newPercent;}
+          else {humidityOnPercent=newPercent*HUMIDITY_ON_SMOOTH+humidityOnPercent*(1-HUMIDITY_ON_SMOOTH);}
+          humidityOffTime=0;
+        }   
       }
+      if (!humidityOn && humiditySP-humidity>=HUMIDITY_DEADBAND){
+        humidityOn=true;
+        if (humidityOffTime>UPDATE_DELAY){
+          uint32_t newPercent;
+          newPercent=(humidityOnTime*100)/(humidityOnTime+humidityOffTime);
+          if (humidityOnPercent==0){humidityOnPercent=newPercent;}
+          else {humidityOnPercent=newPercent*HUMIDITY_ON_SMOOTH+humidityOnPercent*(1-HUMIDITY_ON_SMOOTH);}
+          humidityOnTime=0;
+        }
+      }
+    }
+    else{
+      humidityOn=false;
+      humidityOnTime=0;
+      humidityOffTime=0;
     }
     digitalWrite(TEMP_PIN,tempOn);
     digitalWrite(HUMIDITY_PIN,humidityOn);
@@ -317,7 +370,7 @@ void UpdateDisplay(){
   display.clearDisplay();
   
   //base display.  Shows summary of control values
-  if (menu!=5){
+  if (menu!=5 && menu!=6){
     display.setTextSize(1);
     display.setCursor(0,9);
     if (saved) display.print("*");
@@ -392,18 +445,34 @@ void UpdateDisplay(){
   //network page.
   if (menu==5){
     display.setCursor(0,0);
-    //display.print(": ");
     display.print(WiFi.SSID());
     display.setCursor(0,9);
     display.print("Signal: ");
-    display.print(WiFi.RSSI());
+    display.print(rssi);
     display.print("dBm");
     display.setCursor(0,17);
     display.print("IP: ");
-    display.print(WiFi.localIP());
+    display.print(ip);
     display.setCursor(0,25);
     display.print("MAC:");
     display.print(WiFi.macAddress());
+  }
+
+    //on-time page.
+  if (menu==6){
+    display.setCursor(0,0);
+    display.print("Control Analysis");
+    display.setCursor(30,9);
+    display.print("On %");
+    display.setCursor(0,17);
+    display.print("Temp");
+    display.setCursor(37,17);
+    display.print(tempOnPercent);
+    display.setCursor(0,25);
+    display.print("Hum.");
+    display.setCursor(37,25);
+    display.print(humidityOnPercent);
+    
   }
   
   display.display();
@@ -421,10 +490,12 @@ void handleXML(){
     xml+="<temperatureSP>"+String(temperatureSP)+"</temperatureSP>";
     xml+="<tempControl>"+String(tempControl)+"</tempControl>";
     xml+="<tempOn>"+String(tempOn)+"</tempOn>";
+    xml+="<tempOnPercent>"+String(tempOnPercent)+"</tempOnPercent>";
     xml+="<humidity>"+String(humidity)+"</humidity>";
     xml+="<humiditySP>"+String(humiditySP)+"</humiditySP>";
     xml+="<humidityControl>"+String(humidityControl)+"</humidityControl>";
     xml+="<humidityOn>"+String(humidityOn)+"</humidityOn>";
+    xml+="<humidityOnPercent>"+String(humidityOnPercent)+"</humidityOnPercent>";
     xml+="</data>";
   }
   server.send(200, "text/xml", xml);
@@ -436,17 +507,19 @@ void handleHTML(){
     html="<html><head><title>Curing Chamber</title><meta http-equiv='refresh' content='5'></head><body>";
     html+="<H1>Curing Control</H1>";
     html+="<table border='1', style='border-collapse: collapse;'>";
-    html+="<tr><th></th><th>MV</th><th>SP</th><th>Ctrl</th><th></th></tr>";
+    html+="<tr><th></th><th>MV</th><th>SP</th><th>Ctrl</th><th></th><th>On %</th></tr>";
     html+="<tr><td>Temp</td>";
     html+="<td>" + String(temperature) + "&deg;</td>";
     html+="<td>" + String(temperatureSP) + "&deg;</td>";
     html+="<td>" + String(tempControl) + "</td>";
-    html+="<td>" + String(tempOn) + "</td></tr>";
+    html+="<td>" + String(tempOn) + "</td>";
+    html+="<td>" + String(tempOnPercent) + "</td></tr>";
     html+="<tr><td>Humidity</td>";
     html+="<td>" + String(humidity) + "%</td>";
     html+="<td>" + String(humiditySP) + "%</td>";
     html+="<td>" + String(humidityControl) + "</td>";
-    html+="<td>" + String(humidityOn) + "</td></tr></table></body>";
+    html+="<td>" + String(humidityOn) + "</td>";
+    html+="<td>" + String(humidityOnPercent) + "</td></tr></table></body>";
   }
   server.send(200, "text/html", html);
 }
