@@ -76,8 +76,8 @@ void setup(){
   //read saved config data from eeprom
   EEPROM.begin(4);
   byte temp=EEPROM.read(0);
-  tempControl=temp&0x01;
-  humidityControl=temp&0x02;
+  tempControl=!!(temp&0x01);
+  humidityControl=!!(temp&0x02);
   temperatureSP=EEPROM.read(1);
   humiditySP=EEPROM.read(2);
   tempOn=false;
@@ -562,9 +562,9 @@ void handleCommand(){
   int command=server.arg("command").toInt();
 
   //process command.  If it is zero or undefined command, return error.
-  if (command==1){tempControl=(boolean)server.arg("value").toInt();lastChangeTime=currentTime;}
+  if (command==1){tempControl=!!(boolean)server.arg("value").toInt();lastChangeTime=currentTime;}
   else if (command==2){temperatureSP=constrain(server.arg("value").toFloat(),TEMP_MIN,TEMP_MAX);lastChangeTime=currentTime;}
-  else if (command==3){humidityControl=(boolean)server.arg("value").toInt();lastChangeTime=currentTime;}
+  else if (command==3){humidityControl=!!(boolean)server.arg("value").toInt();lastChangeTime=currentTime;}
   else if (command==4){humiditySP=constrain(server.arg("value").toFloat(),HUMIDITY_MIN,HUMIDITY_MAX);lastChangeTime=currentTime;}
   else {
     server.send(400, "text/plain", "400: Invalid Command");  
