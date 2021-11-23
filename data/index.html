@@ -1,0 +1,88 @@
+<html>
+    <head>
+        <title>Curing Chamber</title>
+		<link style="clear:both" rel="shortcut icon" href="pig.png">
+		<!--<link rel="stylesheet" type="text/css" href="/control/control.css">-->
+		<script src="/jquery.min.js"></script>
+		<script src="/curing.js"></script>
+    </head>
+    <meta name="viewport" content="width=device-width, initial-scale=0.9">
+    <style type="text/css">
+        table.control_table td,th {
+            font-size: 20px;
+            padding: 2px;
+			white-space: nowrap;
+        }
+        .container {
+            position: relative;
+            text-align: center;
+            width: 375px;
+            height: 130px;
+        }
+        .control_table{
+            position: absolute;
+            left:50%;
+            -webkit-transform: translateX(-50%);
+            transform: translateX(-50%);
+            top: 45;
+        }
+        .centerhead {
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 0;
+            margin: 0;
+        }
+        .lefticon, .righticon{
+            position: absolute;
+            width:24px;
+            height:24px;
+        }
+        .lefticon{
+            top: 0;
+            left: 0;
+        }
+        .righticon{
+            top: 0;
+            right: 0;
+        }
+        .labelcolumn{
+            text-align: left;
+        }
+        
+    </style>
+    <body>
+        <div class='container'>
+            <img class='lefticon' src="/duck.png" alt="Duck" style="width:24px;">
+            <H1 class='centerhead'>Curing Control</H1>
+            <img class='righticon' src="/pig.png" alt="Pig">
+            <table class="control_table", border="1", style="border-collapse: collapse; text-align: center">
+                <tr>
+                    <th></th>
+                    <th>MV</th>
+                    <th>SP</th>
+                    <th>Ctrl</th>
+                    <th></th>
+                    <th>On Time</th>
+                </tr>
+                <tr>
+                    <td class='labelcolumn'>Temp</td>
+                    <td class="changetemp"><span id="temperature">?</span>&deg;</td>
+                    <td class="changetemp"><span id="temperatureSP">?</span>&deg;</td>
+                    <td><span id="tempControl">?</span></td>
+                    <td><span id="tempOn">?</span></td>
+                    <td><span id="tempOnPercent">?</span>% / <span id="tempOnTimeAvg">?</span>s</td>
+                </tr>
+                <tr>
+                    <td class='labelcolumn'>Humidity</td>
+                    <td class="changehumidity"><span id="humidity">?</span>%</td>
+                    <td class="changehumidity"><span id="humiditySP">?</span>%</td>
+                    <td><span id="humidityControl">?</span></td>
+                    <td><span id="humidityOn">?</span></td>
+                    <td><span id="humidityOnPercent">?</span>% / <span id="humidityOnTimeAvg">?</span>s</td>
+                </tr>
+            </table>
+        </div>
+    </body>
+
+    

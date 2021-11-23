@@ -6,6 +6,7 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266WiFiMulti.h>
 #include <ESP8266WebServer.h>
+#include <FS.h>   // Include the SPIFFS library
 
 #include "WifiSettings.h"
 //define WIFI SSID and Password if not using separate header file. Add up to 3.
@@ -47,11 +48,16 @@ Adafruit_SHT31 sht31 = Adafruit_SHT31();
 Adafruit_SSD1306 display = Adafruit_SSD1306(128, 32, &Wire);
 
 ESP8266WebServer server(80);    // Create a webserver object that listens for HTTP request on port 80
-void handleXML();               // function prototypes for XML file.
-void handleHTML();              // function prototypes for HTML file.
-void handleCommand();           // function prototypes for handling commands.
-void handleNotFound();          // function for anything else.
 
+//function prototypes
+void handleXML();               // function prototypes for XML file.
+void handleCommand();           // function prototypes for handling commands.
+
+//function prototypes for handling content of request
+String getContentType(String filename); // convert the file extension to the MIME type
+bool handleFileRead(String path);       // send the right file to the client (if it exists)
+
+//declare variables
 float humidity;
 float temperature;
 uint32_t currentTime,lastUpdateTime,lastMenuTime,lastChangeTime;
@@ -64,7 +70,7 @@ uint8_t humiditySP,temperatureSP;
 boolean tempOn,humidityOn;
 boolean tempControl,humidityControl;
 boolean saved=false;
-String xml,html;
+String xml;
 int32_t rssi;
 IPAddress ip;
 
@@ -139,15 +145,18 @@ void setup(){
   humidityOnPercent=0;
   humidityOnTimeAvg=0;
 
+  SPIFFS.begin(); 
+
   //set up web server
   server.on("/data.xml", HTTP_GET, handleXML);          // Call the 'handleXML' function when a client requests URI "/data.xml"
-  server.on("/", HTTP_GET, handleHTML);                 // Call the 'handleHTML' function when a client requests URI "/"
   server.on("/command.cgi", HTTP_POST, handleCommand);  // Call the 'handleRoot' function when a client requests URI "/command with post parameters"
-  server.onNotFound(handleNotFound);                    // When a client requests an unknown URI (i.e. something other than above), call 
+  server.onNotFound([]() {                              // If the client requests any URI not handled elsewhere
+    if (!handleFileRead(server.uri()))                  // send it if it exists
+      server.send(404, "text/plain", "404: Not Found"); // otherwise, respond with a 404 (Not Found) error
+  });
   server.begin();
   
   //reserve space for xml response.
-  html.reserve(512);
   xml.reserve(512);
   
   lastUpdateTime=millis()-UPDATE_DELAY;
@@ -260,7 +269,6 @@ void loop(){
     else {humidityOffTime+=UPDATE_DELAY;}
     
     xml="";
-    html="";
     float reading;
 
     //read and smooth temperature
@@ -526,35 +534,10 @@ void handleXML(){
   server.send(200, "text/xml", xml);
 }
 
-//basic web page to monitor status
-void handleHTML(){
-  if (html.length()==0){
-    html="<html><head><title>Curing Chamber</title><meta http-equiv='refresh' content='5'></head><body>";
-    html+="<H1>Curing Control</H1>";
-    html+="<table border='1', style='border-collapse: collapse;'>";
-    html+="<tr><th></th><th>MV</th><th>SP</th><th>Ctrl</th><th>Out</th><th>On Time(s)</th><th>On %</th></tr>";
-    html+="<tr><td>Temp</td>";
-    html+="<td>" + String(temperature) + "&deg;</td>";
-    html+="<td>" + String(temperatureSP) + "&deg;</td>";
-    html+="<td>" + String(tempControl) + "</td>";
-    html+="<td>" + String(tempOn) + "</td>";
-    html+="<td>" + String(tempOnTimeAvg) + "</td>";
-    html+="<td>" + String(tempOnPercent) + "</td></tr>";
-    html+="<tr><td>Humidity</td>";
-    html+="<td>" + String(humidity) + "%</td>";
-    html+="<td>" + String(humiditySP) + "%</td>";
-    html+="<td>" + String(humidityControl) + "</td>";
-    html+="<td>" + String(humidityOn) + "</td>";
-    html+="<td>" + String(humidityOnTimeAvg) + "</td>";
-    html+="<td>" + String(humidityOnPercent) + "</td></tr></table></body>";
-  }
-  server.send(200, "text/html", html);
-}
-
 void handleCommand(){
   //make sure command and value are proper
   if( !server.hasArg("command") || !server.hasArg("value") || server.arg("command") == NULL || server.arg("value") == NULL || server.arg("command").toInt() == 0){
-    server.send(400, "text/plain", "400: Invalid Request");         // The request is invalid, so send HTTP status 400
+    server.send(400, "text/plain", "400: Missing Required Parameters");         // The request is invalid, so send HTTP status 400
     return;
   }
 
@@ -567,7 +550,7 @@ void handleCommand(){
   else if (command==3){humidityControl=!!(boolean)server.arg("value").toInt();lastChangeTime=currentTime;}
   else if (command==4){humiditySP=constrain(server.arg("value").toFloat(),HUMIDITY_MIN,HUMIDITY_MAX);lastChangeTime=currentTime;}
   else {
-    server.send(400, "text/plain", "400: Invalid Command");  
+    server.send(400, "text/plain", "400: Invalid Command Code");  
     return;
   }
 
@@ -575,8 +558,31 @@ void handleCommand(){
   server.send(200, "text/plain", "Success");
 }
 
-void handleNotFound(){
-  //any unknown page requested, return not found.
-  server.send(404, "text/plain", "404: Not found");
+String getContentType(String filename){
+  if(filename.endsWith(".htm")) return "text/html";
+  else if(filename.endsWith(".html")) return "text/html";
+  else if(filename.endsWith(".css")) return "text/css";
+  else if(filename.endsWith(".js")) return "application/javascript";
+  else if(filename.endsWith(".png")) return "image/png";
+  else if(filename.endsWith(".gif")) return "image/gif";
+  else if(filename.endsWith(".jpg")) return "image/jpeg";
+  else if(filename.endsWith(".ico")) return "image/x-icon";
+  else if(filename.endsWith(".xml")) return "text/xml";
+  else if(filename.endsWith(".pdf")) return "application/x-pdf";
+  else if(filename.endsWith(".zip")) return "application/x-zip";
+  else if(filename.endsWith(".gz")) return "application/x-gzip";
+  return "text/plain";
+}
+
+bool handleFileRead(String path) { // send the right file to the client (if it exists)
+  if (path.endsWith("/")) path += "index.html";         // If a folder is requested, send the index file
+  String contentType = getContentType(path);            // Get the MIME type
+  if (SPIFFS.exists(path)) {                            // If the file exists
+    File file = SPIFFS.open(path, "r");                 // Open it
+    size_t sent = server.streamFile(file, contentType); // And send it to the client
+    file.close();                                       // Then close the file again
+    return true;
+  }
+  return false;                                         // If the file doesn't exist, return false
 }
 
